@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torchvision.datasets import MNIST
-from torch.utils.data import Dataset, DataLoader, random_split
+from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 import pytorch_lightning as pl
 from sklearn.model_selection import train_test_split
@@ -18,7 +18,6 @@ torch.manual_seed(123)
 train_file = 'data/train.tsv'
 validation_percent = 0.1
 test_file = ''
-using_word_pairs = False
 
 EMBEDDING_DIM = 10
 
@@ -33,7 +32,7 @@ class PandasDataset(Dataset):
     return self.dataframe.iloc[idx]['inputs'], self.dataframe.iloc[idx]['labels']
 
 # https://pytorch.org/tutorials/beginner/nlp/word_embeddings_tutorial.html
-class LitClassifier(pl.LightningModule):
+class SentimentClassifier(pl.LightningModule):
     def __init__(self):
         super().__init__()
         self.labels, self.inputs = [], []
@@ -52,6 +51,7 @@ class LitClassifier(pl.LightningModule):
 
         self.embeddings = nn.Embedding(self.vocab_size, EMBEDDING_DIM)
         self.linear1 = nn.Linear(10000 * EMBEDDING_DIM, 128)
+        self.drop = nn.Dropout(0.2)
         self.linear2 = nn.Linear(128, 1)
         self.activation = nn.Sigmoid()
 
@@ -59,12 +59,10 @@ class LitClassifier(pl.LightningModule):
         print("Loading training data...")
         with open(train_file, encoding='utf-8') as data:
           reader = csv.reader(data, delimiter='\t')
-          idx = 0
           for row in reader:
-            if len(row) == 2 and idx < 10:
+            if len(row) == 2:
                 self.labels.append(int(row[0]))
                 self.inputs.append(row[1])
-                idx += 1
         print("Loaded {} documents".format(len(self.labels)))
 
     def prepare_test_data(self):
@@ -108,6 +106,7 @@ class LitClassifier(pl.LightningModule):
         batch_size = x.shape[0]
         embeds = self.embeddings(x)
         out = F.relu(self.linear1(embeds.reshape(batch_size, 10000*EMBEDDING_DIM)))
+        out = self.drop(out)
         out = self.linear2(out)
         return self.activation(out)
 
@@ -128,10 +127,10 @@ class LitClassifier(pl.LightningModule):
         return result
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=0.02)
+        return torch.optim.SGD(self.parameters(), lr=0.001)
 
-model = LitClassifier()
-trainer = pl.Trainer(max_epochs=30, gpus=1)
+model = SentimentClassifier()
+trainer = pl.Trainer(max_epochs=300, gpus=1)
 trainer.fit(model)
 
 
